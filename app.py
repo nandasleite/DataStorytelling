@@ -4,22 +4,24 @@ import google.genai as genai
 from google.api_core import exceptions
 import re
 import json
+import plotly.express as px
 
 # --- Configuração da Página ---
-st.set_page_config(page_title="Tradutor de Datasets")
+st.set_page_config(page_title="Storytelling com Datasets")
+st.set_page_config(layout="wide")
 
 # --- Barra Lateral para Configuração e Upload ---
 with st.sidebar:
-    st.header("Configuração")
+    st.header("1. Sua API")
     st.markdown("Para usar este app, você precisa de uma chave de API do Google Gemini.")
-    
+
     api_key_usuario = st.text_input(
         "Insira sua API Key",
         type="password",
         help="A chave não será salva e é usada apenas para esta sessão."
     )
-    
-    st.markdown(
+
+    st.info(
         """
         **Como obter sua chave:**
         1. Acesse o [Google AI Studio](https://aistudio.google.com/app/apikey).
@@ -28,12 +30,13 @@ with st.sidebar:
         4. Copie a chave e cole no campo acima.
         """
     )
-    
-    st.divider()
-    
-    st.header("Dados")
-    # Upload do arquivo movido para a sidebar
+
+    st.header("2. Seus Dados")
+    # Upload do arquivo
     uploaded_file = st.file_uploader("Escolha um arquivo CSV", type="csv")
+
+    st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+    st.caption("Feito com ❤️ por Fernanda Silva")
 
 def criar_resumo_inteligente(df, nome_arquivo=None):
     """
@@ -107,6 +110,42 @@ def gerar_historia_dados(resumo_inteligente, api_key):
     except Exception as e:
         return f"Ocorreu um erro inesperado ao gerar a história: {e}"
 
+def gerar_codigo_grafico(resumo_inteligente, api_key):
+    """
+    Gera código Python para criar um gráfico Plotly com base no resumo dos dados.
+    """
+    if not api_key:
+        return None
+
+    try:
+        client = genai.Client(api_key=api_key)
+        
+        prompt = f"""
+        Analise este resumo dos dados: {resumo_inteligente}.
+        
+        Sua tarefa é criar um código Python usando a biblioteca `plotly.express` (alias `px`) para gerar o gráfico mais relevante e interessante possível com base nesses dados.
+        
+        **Regras Estritas:**
+        1. O dataframe já está carregado na variável `df`. NÃO crie dados de exemplo.
+        2. Use `plotly.express` como `px`.
+        3. O código deve criar uma figura e atribuí-la à variável `fig`.
+        4. NÃO use `fig.show()`.
+        5. Retorne APENAS o código Python puro. NÃO use blocos de markdown (```python), NÃO coloque comentários explicativos antes ou depois. Apenas o código executável.
+        6. Trate possíveis erros de tipos de dados (ex: converta colunas de data se necessário, mas prefira usar as colunas como estão se possível).
+        """
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        
+        # Limpeza extra para garantir que só temos código
+        codigo = response.text.replace("```python", "").replace("```", "").strip()
+        return codigo
+
+    except Exception as e:
+        st.error(f"Erro ao gerar código do gráfico: {e}")
+        return None
 
 # --- Interface Principal ---
 st.title("Storytelling com Datasets")
@@ -132,17 +171,51 @@ else:
     }
     df = pd.DataFrame(data_exemplo)
 
+st.divider()
+
 if df is not None:
-    st.subheader("Visualização das 5 primeiras linhas")
+
+    st.subheader("Visualização do dataset")
     st.dataframe(df.head())
 
-    if st.button("Gerar História dos Dados"):
-        if not api_key_usuario:
-            st.warning("⚠️ Por favor, insira sua chave de API na barra lateral para continuar.")
-        else:
-            with st.spinner("Criando resumo inteligente e gerando a narrativa..."):
-                resumo = criar_resumo_inteligente(df, nome_arquivo)
-                historia = gerar_historia_dados(resumo, api_key_usuario)
+    st.divider()
+    col1, col2 = st.columns(2)
 
-                st.subheader("A História por Trás dos Números")
-                st.write(historia)
+    with col1:
+        if st.button(" Gerar História dos Dados"):
+            if not api_key_usuario:
+                st.warning("⚠️ Por favor, insira sua chave de API na barra lateral para continuar.")
+            else:
+                with st.spinner("Criando resumo inteligente e gerando a narrativa..."):
+                    resumo = criar_resumo_inteligente(df, nome_arquivo)
+                    historia = gerar_historia_dados(resumo, api_key_usuario)
+
+                    st.subheader("A História por Trás dos Números")
+                    st.write(historia)
+    
+    with col2:
+        if st.button("Gerar Gráfico Inteligente"):
+            if not api_key_usuario:
+                st.warning("⚠️ Por favor, insira sua chave de API na barra lateral para continuar.")
+            else:
+                with st.spinner("A IA está escolhendo o melhor gráfico para seus dados..."):
+                    resumo = criar_resumo_inteligente(df, nome_arquivo)
+                    codigo_grafico = gerar_codigo_grafico(resumo, api_key_usuario)
+                    
+                    if codigo_grafico:
+                        try:
+                            # Ambiente local para execução segura
+                            local_env = {'df': df, 'px': px}
+                            exec(codigo_grafico, {}, local_env)
+                            
+                            if 'fig' in local_env:
+                                st.subheader("Gráfico Sugerido pela IA")
+                                st.plotly_chart(local_env['fig'], use_container_width=True)
+                                with st.expander("Ver código gerado"):
+                                    st.code(codigo_grafico, language='python')
+                            else:
+                                st.error("O código gerado não criou a variável 'fig'.")
+                        except Exception as e:
+                            st.error(f"Erro ao executar o código do gráfico: {e}")
+                            with st.expander("Ver código que falhou"):
+                                st.code(codigo_grafico, language='python')
